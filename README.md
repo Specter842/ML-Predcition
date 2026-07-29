@@ -14,6 +14,10 @@ walk-forward, out-of-sample data.
 > Every number in the results table below is a **placeholder**. Do not cite,
 > screenshot, or believe any of it until you have run the pipeline yourself and
 > the table has been regenerated. See [Running it](#running-it).
+>
+> To see the system work without a key, `python -m src.run_pipeline --synthetic`
+> runs everything on generated data — but those numbers describe the generator,
+> not inflation.
 
 ---
 
@@ -223,6 +227,28 @@ Get a free key at <https://fredaccount.stlouisfed.org/apikeys>, then either set
 FRED_API_KEY=your_key_here
 ```
 
+### Try it without an API key
+
+```bash
+python -m src.run_pipeline --synthetic --lags 1 28
+```
+
+Runs the entire pipeline — features, walk-forward backtest, benchmark table,
+interval calibration, deep-learning gate — on generated data from
+`src/simulate.py`. No credentials, no downloads. Then:
+
+```bash
+streamlit run app/dashboard.py
+```
+
+Use this to exercise the machinery and read the report format before
+committing to a real data pull.
+
+**The numbers it produces describe the data generator, not the US economy.**
+Synthetic artifacts are tagged `_synthetic`, the summary carries a warning
+block, and the dashboard shows a red banner — three separate guards against a
+synthetic run being mistaken for a real one.
+
 ### Full pipeline
 
 ```bash
@@ -255,9 +281,19 @@ than a formality:
   untested. At `persistence = 0.45` the random walk is a genuine competitor
   and "does anything beat it" is a real question.
 
-On the current fixtures the deep-learning gate **closes** — no tree or linear
-model clears both the random walk and Atkeson-Ohanian at p < 0.05 — which is
-the intended default state.
+The deep-learning gate's state depends on the feature set, which is worth
+stating plainly rather than claiming a tidy default:
+
+- On the **7-series test fixtures** it **closes** — nothing clears both the
+  random walk and Atkeson-Ohanian at p < 0.05.
+- On the **full 16-series synthetic registry** (`--synthetic`) the tree models
+  **open** it.
+
+Both facts describe the generator, not inflation — an AR(1) process with many
+correlated derived features is something gradient boosting can exploit. The
+point is that the gate is *evaluated from backtest results* rather than
+asserted, so it responds to evidence. What it does on real CPI is an open
+question until someone runs it.
 
 The fixtures also make the DM/Clark-West distinction concrete rather than
 theoretical: Ridge scores DM p = 0.18 against the random walk while Clark-West

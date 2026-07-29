@@ -41,12 +41,20 @@ def load_predictions(tag: str) -> pd.DataFrame | None:
 
 
 @st.cache_resource(show_spinner=False)
-def get_store() -> VintageStore:
+def get_store(synthetic: bool = False) -> VintageStore:
+    if synthetic:
+        from src.simulate import synthetic_store
+
+        return synthetic_store()
     return VintageStore()
 
 
 @st.cache_resource(show_spinner=False)
-def get_gpr() -> GPRStore | None:
+def get_gpr(synthetic: bool = False) -> GPRStore | None:
+    if synthetic:
+        from src.simulate import synthetic_gpr
+
+        return synthetic_gpr()
     try:
         return GPRStore(load_gpr())
     except Exception:
@@ -73,7 +81,9 @@ if not runs:
 run_tag = st.sidebar.selectbox("Backtest run", runs)
 predictions = load_predictions(run_tag)
 spec = CORE_MOM if run_tag.startswith("CPILFESL") else HEADLINE_MOM
-cfg = WITH_BREAKEVENS if run_tag.endswith("with_be") else NO_BREAKEVENS
+# Substring, not suffix: a synthetic run is tagged "..._with_be_synthetic".
+cfg = WITH_BREAKEVENS if "with_be" in run_tag else NO_BREAKEVENS
+is_synthetic = run_tag.endswith("_synthetic")
 
 results = evaluate(predictions)
 horizons = sorted(predictions["as_of_lag_days"].unique())
@@ -100,6 +110,14 @@ horizon = st.sidebar.selectbox(
 # ---------------------------------------------------------------------------
 
 st.title("US CPI nowcast")
+
+if is_synthetic:
+    st.error(
+        "**Synthetic run — this is not real data.** Every number on this page "
+        "describes the generator in `src/simulate.py`, not US inflation. "
+        "Run `python -m src.run_pipeline --download` with a FRED API key for a "
+        "real backtest."
+    )
 
 row = results[
     (results["model"] == model_name) & (results["as_of_lag_days"] == horizon)
@@ -169,7 +187,8 @@ if st.button("Compute live nowcast", type="primary"):
         try:
             factory = model_zoo(cfg.include_breakevens)[model_name]
             nc = make_nowcast(
-                get_store(), get_gpr(), factory, predictions, spec=spec, cfg=cfg
+                get_store(is_synthetic), get_gpr(is_synthetic),
+                factory, predictions, spec=spec, cfg=cfg,
             )
             st.session_state["nowcast"] = nc
         except Exception as exc:
@@ -263,8 +282,9 @@ with st.expander("Interval calibration"):
     )
 
 with st.expander("Breakeven ablation"):
-    other = "with_be" if not cfg.include_breakevens else "no_be"
-    other_tag = run_tag.replace("with_be" if cfg.include_breakevens else "no_be", other)
+    this_be = "with_be" if cfg.include_breakevens else "no_be"
+    other = "no_be" if cfg.include_breakevens else "with_be"
+    other_tag = run_tag.replace(this_be, other)
     other_pred = load_predictions(other_tag)
     if other_pred is None:
         st.info(f"No counterpart run (`{other_tag}`) found. Run the pipeline without `--skip-breakeven-ablation`.")
@@ -276,8 +296,7 @@ with st.expander("Breakeven ablation"):
         merged = merged[merged["as_of_lag_days"] == horizon]
         st.dataframe(
             merged[["model", "rmse_this", "rmse_other"]].rename(
-                columns={"rmse_this": f"RMSE ({run_tag.split('_')[-1]})",
-                         "rmse_other": f"RMSE ({other})"}
+                columns={"rmse_this": f"RMSE ({this_be})", "rmse_other": f"RMSE ({other})"}
             ).set_index("model"),
             use_container_width=True,
         )

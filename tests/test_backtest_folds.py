@@ -20,7 +20,13 @@ from src.models.baseline_midas import ARBaseline, ClevelandStyleOLS
 from src.models.baseline_naive import AtkesonOhanian, ExpandingMean, RandomWalk
 from src.validation.backtest import BacktestSpec, _fold_slices, walk_forward
 from src.validation.diebold_mariano import clark_west, diebold_mariano
-from src.validation.report import evaluate, headline, to_markdown
+from src.validation.report import (
+    calibration_report,
+    evaluate,
+    frame_to_markdown,
+    headline,
+    to_markdown,
+)
 
 LAGS = (1, 28)
 
@@ -264,6 +270,27 @@ def test_markdown_survives_missing_benchmark_columns(predictions):
     assert not any("atkeson" in h for h in header)
     lines = [ln for ln in md.splitlines() if ln.startswith("|")]
     assert len({ln.count("|") for ln in lines}) == 1
+
+
+def test_frame_to_markdown_needs_no_optional_dependency(predictions):
+    """The summary writer must not depend on tabulate.
+
+    pandas' own to_markdown does, which meant a full backtest could complete
+    and then die writing its own summary file.
+    """
+    calib = calibration_report(predictions)
+    md = frame_to_markdown(calib)
+    lines = [ln for ln in md.splitlines() if ln.startswith("|")]
+    assert len(lines) == len(calib) + 2  # header + rule + one row each
+    assert len({ln.count("|") for ln in lines}) == 1
+    assert all(str(c) in lines[0] for c in calib.columns)
+
+
+def test_frame_to_markdown_handles_empty_and_missing_values():
+    empty = frame_to_markdown(pd.DataFrame())
+    assert "No rows" in empty
+    md = frame_to_markdown(pd.DataFrame({"a": [1.0, np.nan], "b": ["x", "y"]}))
+    assert "—" in md  # NaN renders as an em dash, not the string "nan"
 
 
 def test_headline_states_a_negative_result_plainly(predictions):

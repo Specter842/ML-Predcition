@@ -43,7 +43,13 @@ from src.models.challenger_dl import gate_status
 from src.models.challenger_linear import ElasticNetModel, FixedRidge, RidgeModel
 from src.models.challenger_trees import LightGBMModel, XGBoostModel, available
 from src.validation.backtest import BacktestSpec, fold_summary, walk_forward
-from src.validation.report import calibration_report, evaluate, headline, to_markdown
+from src.validation.report import (
+    calibration_report,
+    evaluate,
+    frame_to_markdown,
+    headline,
+    to_markdown,
+)
 
 TARGETS = {"headline": HEADLINE_MOM, "core": CORE_MOM}
 
@@ -103,6 +109,13 @@ def run_one(
 def main() -> None:
     ap = argparse.ArgumentParser(description="Run the inflation nowcasting pipeline.")
     ap.add_argument("--download", action="store_true", help="refresh the ALFRED vintage cache")
+    ap.add_argument(
+        "--synthetic",
+        action="store_true",
+        help="run on generated data instead of FRED — no API key needed. Exercises "
+             "the whole pipeline; the resulting numbers describe the generator, not "
+             "the US economy.",
+    )
     ap.add_argument("--target", default="headline", choices=sorted(TARGETS))
     ap.add_argument("--lags", type=int, nargs="*", default=list(DEFAULT_BACKTEST.as_of_lags_days))
     ap.add_argument("--min-train", type=int, default=DEFAULT_BACKTEST.min_train_months)
@@ -118,23 +131,36 @@ def main() -> None:
     print(f"Inflation nowcaster — target: {describe(spec)}")
     print("=" * 72)
 
-    if args.download:
-        download_all()
+    if args.synthetic:
+        from src.simulate import synthetic_gpr, synthetic_store
 
-    store = VintageStore()
-    cached = store.available()
-    if not cached:
-        raise SystemExit(
-            "No cached series. Run with --download (needs FRED_API_KEY set)."
+        print(
+            "\n*** SYNTHETIC RUN — generated data, no FRED ***\n"
+            "    Results describe the generator, not the US economy. Do not\n"
+            "    quote these numbers as inflation forecasting accuracy."
         )
-    print(f"\nVintage cache: {len(cached)} series available")
+        store = synthetic_store()
+        gpr_store = synthetic_gpr()
+        print(f"Synthetic store: {len(store.specs)} series; GPR: {len(gpr_store.table):,} months")
+    else:
+        if args.download:
+            download_all()
 
-    try:
-        gpr_store = gpr_mod.GPRStore(gpr_mod.load())
-        print(f"GPR: {len(gpr_store.table):,} months, columns {gpr_store.columns}")
-    except Exception as exc:
-        gpr_store = None
-        print(f"GPR unavailable ({exc}) — continuing without geopolitical features")
+        store = VintageStore()
+        cached = store.available()
+        if not cached:
+            raise SystemExit(
+                "No cached series. Run with --download (needs FRED_API_KEY set), "
+                "or with --synthetic to exercise the pipeline on generated data."
+            )
+        print(f"\nVintage cache: {len(cached)} series available")
+
+        try:
+            gpr_store = gpr_mod.GPRStore(gpr_mod.load())
+            print(f"GPR: {len(gpr_store.table):,} months, columns {gpr_store.columns}")
+        except Exception as exc:
+            gpr_store = None
+            print(f"GPR unavailable ({exc}) — continuing without geopolitical features")
 
     targets = build_target(store, spec, start=args.start)
     print(f"Target: {len(targets):,} months, {targets['target_month'].min():%Y-%m} "
@@ -149,11 +175,15 @@ def main() -> None:
     all_results: dict[str, pd.DataFrame] = {}
     all_predictions: dict[str, pd.DataFrame] = {}
 
+    # Synthetic artifacts are tagged so they cannot be mistaken for a real run
+    # in the results directory or the dashboard's run picker.
+    suffix = "_synthetic" if args.synthetic else ""
+
     for cfg in configs:
         predictions, results = run_one(
             store, gpr_store, targets, cfg, spec, backtest_spec, as_of_lags
         )
-        tag = f"{spec.series}_{cfg.name}"
+        tag = f"{spec.series}_{cfg.name}{suffix}"
         predictions.to_parquet(RESULTS / f"predictions_{tag}.parquet", index=False)
         results.to_csv(RESULTS / f"results_{tag}.csv", index=False)
         all_results[cfg.name] = results
@@ -164,32 +194,41 @@ def main() -> None:
         print(f"\nHeadline [{cfg.name}]:")
         print(headline(results))
 
-    # SPF benchmark, on its own quarterly footing.
-    try:
-        spf_table = spf_mod.quarterly_benchmark(targets)
-        spf_table.to_csv(RESULTS / "spf_quarterly_benchmark.csv", index=False)
-        print(f"\nSPF quarterly benchmark: {len(spf_table)} quarters written to results/")
-    except Exception as exc:
-        spf_table = None
-        print(f"\nSPF benchmark unavailable ({exc})")
+    # SPF benchmark, on its own quarterly footing. Meaningless against
+    # generated data, so it is skipped rather than reported as unavailable.
+    if not args.synthetic:
+        try:
+            spf_table = spf_mod.quarterly_benchmark(targets)
+            spf_table.to_csv(RESULTS / "spf_quarterly_benchmark.csv", index=False)
+            print(f"\nSPF quarterly benchmark: {len(spf_table)} quarters written to results/")
+        except Exception as exc:
+            print(f"\nSPF benchmark unavailable ({exc})")
+    else:
+        print("\nSPF benchmark skipped — not meaningful against synthetic data")
 
     primary = all_results[NO_BREAKEVENS.name]
     gate = gate_status(primary)
     print(f"\nPhase 4 deep-learning gate: {'OPEN' if gate.passed else 'CLOSED'} — {gate.reason}")
 
-    summary_path = RESULTS / f"summary_{spec.series}.md"
+    summary_path = RESULTS / f"summary_{spec.series}{suffix}.md"
     with summary_path.open("w", encoding="utf-8") as fh:
         fh.write(f"# Backtest summary — {describe(spec)}\n\n")
+        if args.synthetic:
+            fh.write(
+                "> **SYNTHETIC RUN.** Generated data, not FRED. Every number below\n"
+                "> describes the data generator in `src/simulate.py`, not US\n"
+                "> inflation. Do not quote these as forecasting accuracy.\n\n"
+            )
         fh.write(f"Generated {pd.Timestamp.now():%Y-%m-%d %H:%M}\n\n")
         for name, results in all_results.items():
             fh.write(f"## Feature set: {name}\n\n")
             fh.write(headline(results) + "\n\n")
             for lag in sorted(results["as_of_lag_days"].unique()):
-                fh.write(f"### {lag} days before release\n\n")
+                fh.write(f"### {lag} day{'s' if lag != 1 else ''} before release\n\n")
                 fh.write(to_markdown(results, lag=lag) + "\n\n")
             fh.write("### Interval calibration\n\n")
             calib = calibration_report(all_predictions[name], args.interval_level)
-            fh.write(calib.to_markdown(index=False) + "\n\n")
+            fh.write(frame_to_markdown(calib) + "\n\n")
         fh.write(f"## Deep-learning gate\n\n{'OPEN' if gate.passed else 'CLOSED'} — {gate.reason}\n")
 
     print(f"\nWrote {summary_path}")

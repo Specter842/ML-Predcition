@@ -233,6 +233,35 @@ def to_markdown(
     return "\n".join(lines)
 
 
+def frame_to_markdown(df: pd.DataFrame, floatfmt: str = "{:.4f}") -> str:
+    """Render any frame as a markdown table without the ``tabulate`` dependency.
+
+    ``DataFrame.to_markdown`` requires tabulate, which is an optional pandas
+    extra. Depending on it means the pipeline can complete an hour of
+    backtesting and then die writing the summary file — which is exactly what
+    it did. Formatting is not worth a dependency that can fail that late.
+    """
+    if df.empty:
+        return "_No rows._"
+
+    def cell(value) -> str:
+        if pd.isna(value):
+            return "—"
+        if isinstance(value, (int, np.integer, bool)):
+            return str(value)
+        if isinstance(value, (float, np.floating)):
+            return floatfmt.format(value)
+        return str(value)
+
+    header = "| " + " | ".join(str(c) for c in df.columns) + " |"
+    rule = "|" + "---|" * len(df.columns)
+    rows = [
+        "| " + " | ".join(cell(v) for v in rec) + " |"
+        for rec in df.itertuples(index=False, name=None)
+    ]
+    return "\n".join([header, rule, *rows])
+
+
 def calibration_report(predictions: pd.DataFrame, interval_level: float = 0.80) -> pd.DataFrame:
     """Interval coverage per (model, horizon), against the nominal level.
 
