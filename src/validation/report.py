@@ -183,21 +183,27 @@ def to_markdown(
     if df.empty:
         return "_No results._"
 
-    cols = ["model", "as_of_lag_days", "folds", "rmse", "mae", "dir_acc", "coverage"]
-    header = ["Model", "Horizon", "Folds", "RMSE", "MAE", "Dir. acc.", "Cov."]
-
+    # Built as (column, heading) pairs and filtered together — filtering two
+    # parallel lists separately misaligns the table whenever an early column is
+    # missing, and the result still renders, just wrongly labelled.
+    candidates: list[tuple[str, str]] = [
+        ("model", "Model"),
+        ("as_of_lag_days", "Horizon"),
+        ("folds", "Folds"),
+        ("rmse", "RMSE"),
+        ("mae", "MAE"),
+        ("dir_acc", "Dir. acc."),
+        ("coverage", "Cov."),
+    ]
     for bench in benchmarks:
-        ratio, pval = f"rmse_ratio_vs_{bench}", f"dm_p_vs_{bench}"
-        if ratio in df.columns:
-            cols += [ratio, pval]
-            short = bench.replace("_", " ")
-            header += [f"RMSE / {short}", f"DM p vs {short}"]
-    if "cw_p_vs_random_walk" in df.columns:
-        cols.append("cw_p_vs_random_walk")
-        header.append("CW p vs RW")
+        short = bench.replace("_", " ")
+        candidates.append((f"rmse_ratio_vs_{bench}", f"RMSE / {short}"))
+        candidates.append((f"dm_p_vs_{bench}", f"DM p vs {short}"))
+    candidates.append(("cw_p_vs_random_walk", "CW p vs RW"))
 
-    cols = [c for c in cols if c in df.columns]
-    header = header[: len(cols)]
+    pairs = [(c, h) for c, h in candidates if c in df.columns]
+    cols = [c for c, _ in pairs]
+    header = [h for _, h in pairs]
 
     def fmt(value, col: str) -> str:
         if pd.isna(value):

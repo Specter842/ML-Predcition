@@ -214,6 +214,7 @@ if __name__ == "__main__":
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
     t = load(args.variable, force=args.force)
-    print(f"SPF {args.variable}: {len(t):,} surveys, "
-          f"{t['survey_quarter'].min():%Y-Q%q} to {t['survey_quarter'].max():%Y-%m}")
+    first = pd.Period(t["survey_quarter"].min(), freq="Q")
+    last = pd.Period(t["survey_quarter"].max(), freq="Q")
+    print(f"SPF {args.variable}: {len(t):,} surveys, {first} to {last}")
     print(t.tail(6).to_string(index=False))

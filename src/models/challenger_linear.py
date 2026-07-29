@@ -79,14 +79,24 @@ class _LinearChallenger(BaseModel):
 
 
 class RidgeModel(_LinearChallenger):
-    """Ridge with the penalty chosen by chronological inner CV."""
+    """Ridge with the penalty chosen by chronological inner CV.
+
+    Note on cost: passing an explicit ``cv`` makes ``RidgeCV`` abandon its fast
+    leave-one-out generalised-CV path and fit the full alpha grid on every
+    split. LOO would be far cheaper but is not chronological, and letting a
+    later month help choose the penalty used to predict an earlier one is
+    exactly the leakage this project exists to avoid. So the grid is kept
+    deliberately coarse and the refit cadence quarterly — 15 alphas on a log
+    scale resolve the penalty about as well as 25 on a sample this size.
+    """
 
     name = "ridge"
-    note = "L2, alpha by expanding-window inner CV"
+    note = "L2, alpha by expanding-window inner CV, refit quarterly"
+    refit_every = 3
 
-    def __init__(self, alphas: tuple[float, ...] | None = None, n_splits: int = 5):
+    def __init__(self, alphas: tuple[float, ...] | None = None, n_splits: int = 3):
         super().__init__(n_splits)
-        self.alphas = alphas or tuple(np.logspace(-2, 4, 25))
+        self.alphas = alphas or tuple(np.logspace(-2, 4, 15))
 
     def _make_estimator(self, n_train: int):
         return RidgeCV(alphas=self.alphas, cv=self._splits(n_train))

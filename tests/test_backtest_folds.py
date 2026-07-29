@@ -20,7 +20,7 @@ from src.models.baseline_midas import ARBaseline, ClevelandStyleOLS
 from src.models.baseline_naive import AtkesonOhanian, ExpandingMean, RandomWalk
 from src.validation.backtest import BacktestSpec, _fold_slices, walk_forward
 from src.validation.diebold_mariano import clark_west, diebold_mariano
-from src.validation.report import evaluate
+from src.validation.report import evaluate, headline, to_markdown
 
 LAGS = (1, 28)
 
@@ -239,6 +239,43 @@ def test_p_values_are_in_range(predictions):
     for col in [c for c in results.columns if c.startswith(("dm_p", "cw_p"))]:
         vals = results[col].dropna()
         assert ((vals >= 0) & (vals <= 1)).all(), f"{col} out of range"
+
+
+def test_markdown_table_headers_line_up_with_columns(predictions):
+    """Header count must match the body, whatever subset of columns exists."""
+    results = evaluate(predictions)
+    md = to_markdown(results, lag=LAGS[0])
+    lines = [ln for ln in md.splitlines() if ln.startswith("|")]
+    assert len(lines) >= 3
+    width = lines[0].count("|")
+    for line in lines:
+        assert line.count("|") == width, f"ragged row: {line}"
+
+
+def test_markdown_survives_missing_benchmark_columns(predictions):
+    """A run without some benchmarks must not shift headers onto wrong columns."""
+    results = evaluate(predictions)
+    trimmed = results.drop(
+        columns=[c for c in results.columns if "atkeson_ohanian" in c or "cleveland_ols" in c]
+    )
+    md = to_markdown(trimmed, lag=LAGS[0])
+    header = [h.strip() for h in md.splitlines()[0].strip("|").split("|")]
+    assert "Model" in header
+    assert not any("atkeson" in h for h in header)
+    lines = [ln for ln in md.splitlines() if ln.startswith("|")]
+    assert len({ln.count("|") for ln in lines}) == 1
+
+
+def test_headline_states_a_negative_result_plainly(predictions):
+    """When nothing beats the random walk, the headline must say so."""
+    results = evaluate(predictions)
+    # Force the negative case: make every challenger clearly worse.
+    forced = results.copy()
+    mask = forced["model"] != "random_walk"
+    forced.loc[mask, "rmse_ratio_vs_random_walk"] = 1.5
+    forced.loc[mask, "dm_p_vs_random_walk"] = 0.9
+    text = headline(forced)
+    assert "nothing beats the random walk" in text.lower()
 
 
 def test_intervals_are_ordered_and_roughly_calibrated(predictions):
