@@ -1,0 +1,21 @@
+# Core — required for the data pipeline, baselines, and validation harness.
+numpy>=1.26
+pandas>=2.2
+scikit-learn>=1.4
+statsmodels>=0.14
+requests>=2.31
+pyarrow>=15.0
+python-dateutil>=2.9
+openpyxl>=3.1
+pytest>=8.0
+
+# Phase 4 challengers — optional. The tree models are skipped with a clear
+# message if these are absent, so the rest of the pipeline still runs.
+# xgboost>=2.0
+# lightgbm>=4.3
+# optuna>=3.6
+# shap>=0.45
+
+# Phase 6 dashboard — optional.
+# streamlit>=1.35
+# matplotlib>=3.8

@@ -1,0 +1,24 @@
+# Environments
+.venv/
+venv/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Data — regenerable from the ingest layer, and large.
+# Vintage caches are kept out of git; `python -m src.ingest.fred --all` rebuilds them.
+data/raw/*
+data/vintages/*
+data/processed/*
+!data/raw/.gitkeep
+!data/vintages/.gitkeep
+!data/processed/.gitkeep
+
+# Model / backtest outputs
+results/*
+!results/.gitkeep
