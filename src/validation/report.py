@@ -45,11 +45,17 @@ def _rmse(err: np.ndarray) -> float:
 
 
 def _directional_accuracy(df: pd.DataFrame) -> float:
-    """Share of folds where the acceleration call was right."""
+    """Share of folds where the acceleration call was right.
+
+    Returns NaN for a model that never deviates from the random walk. Such a
+    model makes no directional call at all, and scoring it 0% reads as "always
+    wrong" rather than "declined to answer" — which is what the random-walk row
+    would otherwise show.
+    """
     true_dir = np.sign(df["y_true"] - df["rw_forecast"])
     pred_dir = np.sign(df["y_pred"] - df["rw_forecast"])
     mask = (true_dir != 0) & np.isfinite(true_dir) & np.isfinite(pred_dir)
-    if mask.sum() == 0:
+    if mask.sum() == 0 or (pred_dir[mask] == 0).all():
         return np.nan
     return float((true_dir[mask] == pred_dir[mask]).mean())
 

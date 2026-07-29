@@ -242,6 +242,28 @@ python -m pytest
 
 No network or API key required — the suite runs entirely on synthetic fixtures.
 
+The fixtures are built with two properties that make them a real test rather
+than a formality:
+
+- **Large, late revisions.** Each month is revised 12 months after its first
+  print, in imitation of CPI's annual seasonal-factor update, so
+  revision-blind code cannot pass by accident. A separate test asserts the
+  revisions exist — guarding the guard.
+- **Persistent (AR(1)) month-over-month changes**, not iid noise. With iid
+  changes the random walk is the *worst* possible forecast and every model
+  beats it trivially, which would leave the entire benchmark apparatus
+  untested. At `persistence = 0.45` the random walk is a genuine competitor
+  and "does anything beat it" is a real question.
+
+On the current fixtures the deep-learning gate **closes** — no tree or linear
+model clears both the random walk and Atkeson-Ohanian at p < 0.05 — which is
+the intended default state.
+
+The fixtures also make the DM/Clark-West distinction concrete rather than
+theoretical: Ridge scores DM p = 0.18 against the random walk while Clark-West
+gives p ≈ 3e-9 on the same folds. That gap *is* the nested-model
+under-rejection described above, and it is the reason both tests are reported.
+
 ### Dashboard
 
 ```bash

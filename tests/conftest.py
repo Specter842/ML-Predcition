@@ -38,6 +38,7 @@ def make_monthly_history(
     seed: int = 0,
     start_level: float = 170.0,
     drift: float = 0.002,
+    persistence: float = 0.45,
     revise_after_months: int = 12,
     revision_size: float = 0.0015,
 ) -> pd.DataFrame:
@@ -47,10 +48,24 @@ def make_monthly_history(
     imitation of CPI's annual seasonal-factor update. Its size is large enough
     that a test scoring against the wrong vintage will show a clear difference
     rather than a rounding wobble.
+
+    Month-over-month changes follow an AR(1) with ``persistence``, rather than
+    being iid. This matters: with iid changes the random walk is the *worst*
+    possible forecast, so every model beats it trivially and the benchmark
+    machinery is never exercised in a regime resembling the real problem.
+    Real monthly CPI changes are moderately persistent, and 0.45 puts
+    persistence in the right neighbourhood — enough that beating the random
+    walk is a genuine question rather than a foregone conclusion.
     """
     rng = np.random.default_rng(seed)
     months = _months()
-    shocks = rng.normal(drift, 0.003, size=len(months))
+
+    innovations = rng.normal(0.0, 0.003, size=len(months))
+    shocks = np.empty(len(months))
+    prev = 0.0
+    for i, eps in enumerate(innovations):
+        prev = persistence * prev + eps
+        shocks[i] = drift + prev
     levels = start_level * np.exp(np.cumsum(shocks))
 
     rows = []
